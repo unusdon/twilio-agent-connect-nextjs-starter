@@ -1,0 +1,28 @@
+{
+  "name": "twilio-agent-connect-nextjs-starter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TypeScript-first Twilio Agent Connect starter with a Claude LLM backbone and a Next.js observability dashboard. By unusdon.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:agent dev:dashboard",
+    "dev:agent": "npm --workspace @tac-starter/agent run dev",
+    "dev:dashboard": "npm --workspace @tac-starter/dashboard run dev",
+    "build": "npm --workspaces --if-present run build",
+    "typecheck": "npm --workspaces --if-present run typecheck",
+    "lint": "npm --workspaces --if-present run lint",
+    "test": "npm --workspaces --if-present run test",
+    "setup:check": "node scripts/setup-check.mjs"
+  },
+  "devDependencies": {
+    "npm-run-all": "^4.1.5",
+    "typescript": "^5.7.3"
+  }
+}

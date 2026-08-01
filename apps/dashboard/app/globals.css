@@ -1,0 +1,99 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Light theme (default) */
+:root {
+  --bg: 246 248 251;
+  --panel: 255 255 255;
+  --panel-hover: 249 250 252;
+  --border: 226 232 240;
+  --border-strong: 203 213 225;
+  --text: 15 23 42;
+  --text-secondary: 51 65 85;
+  --muted: 100 116 139;
+  --accent: 32 156 238; /* Telegram-native blue */
+  --accent-soft: 224 242 254;
+  --shadow-color: 15 23 42;
+  --shadow: 0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06);
+  --shadow-lg: 0 10px 25px -8px rgb(15 23 42 / 0.12), 0 4px 6px -2px rgb(15 23 42 / 0.05);
+
+  /* Event-type palettes (light) */
+  --evt-message-bg: 219 234 254;
+  --evt-message-fg: 30 64 175;
+  --evt-memory-bg: 233 213 255;
+  --evt-memory-fg: 91 33 182;
+  --evt-llm-bg: 209 250 229;
+  --evt-llm-fg: 6 95 70;
+  --evt-tool-bg: 254 243 199;
+  --evt-tool-fg: 146 64 14;
+  --evt-sent-bg: 241 245 249;
+  --evt-sent-fg: 51 65 85;
+  --evt-rule-bg: 252 231 243;
+  --evt-rule-fg: 157 23 77;
+}
+
+:root[data-theme="dark"] {
+  --bg: 10 14 24;
+  --panel: 18 24 39;
+  --panel-hover: 24 32 51;
+  --border: 34 44 66;
+  --border-strong: 51 65 94;
+  --text: 226 232 240;
+  --text-secondary: 203 213 225;
+  --muted: 148 163 184;
+  --accent: 91 158 255;
+  --accent-soft: 30 58 138;
+  --shadow: 0 1px 2px 0 rgb(0 0 0 / 0.4), 0 1px 3px 0 rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 10px 30px -10px rgb(0 0 0 / 0.5), 0 4px 6px -2px rgb(0 0 0 / 0.3);
+
+  --evt-message-bg: 30 58 138;
+  --evt-message-fg: 191 219 254;
+  --evt-memory-bg: 88 28 135;
+  --evt-memory-fg: 233 213 255;
+  --evt-llm-bg: 6 78 59;
+  --evt-llm-fg: 167 243 208;
+  --evt-tool-bg: 120 53 15;
+  --evt-tool-fg: 254 215 170;
+  --evt-sent-bg: 30 41 59;
+  --evt-sent-fg: 203 213 225;
+  --evt-rule-bg: 131 24 67;
+  --evt-rule-fg: 251 207 232;
+}
+
+html {
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+body {
+  background-color: rgb(var(--bg));
+  color: rgb(var(--text));
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* Subtle background pattern so the page isn't a flat wash */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    rgb(var(--border) / 0.5) 1px,
+    transparent 0
+  );
+  background-size: 24px 24px;
+  mask-image: radial-gradient(ellipse 60% 60% at 50% 0%, black 30%, transparent 100%);
+  z-index: 0;
+}
+
+/* Ensure content sits above the pattern */
+main,
+header {
+  position: relative;
+  z-index: 1;
+}

@@ -1,0 +1,18 @@
+node_modules
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+
+# next.js
+.next/
+out/
+
+# build
+dist/
+build/
+*.tsbuildinfo
+
+# event log (dashboard live-mode reads from this)
+data/events.jsonl
