@@ -299,8 +299,6 @@ MIT — see [`LICENSE`](LICENSE). Chosen to match the underlying TAC SDK (`twili
 
 ## Related
 
-- **[nova-store-telegram-mini-app](https://github.com/unusdon/nova-store-telegram-mini-app)** — Telegram Mini App eCommerce UI kit (vanilla HTML/CSS/JS)
-- **[nova-store-telegram-mini-app-nextjs](https://github.com/unusdon/nova-store-telegram-mini-app-nextjs)** — the Next.js edition of the above
 - **[ai-chatbot-saas](https://github.com/unusdon/ai-chatbot-saas)** — self-hosted RAG chatbot SaaS
 
 ---
