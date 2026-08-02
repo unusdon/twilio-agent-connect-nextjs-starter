@@ -17,7 +17,7 @@ That rules out serverless (Vercel Functions, Netlify Functions, AWS Lambda) as t
 - **Render** — Web Service, same command, disable auto-idle so the process stays warm.
 - **A VM** (EC2, DigitalOcean droplet, Hetzner) — `pm2 start dist/index.js --name tac-agent`.
 
-**Multi-instance:** if you scale beyond one instance, you must either hash-route requests by `conversationId` at the load balancer, or swap the in-memory `conversationHistory` in `apps/agent/src/index.ts` for a Redis-backed store. See [`EP2_AGENT.md`](EP2_AGENT.md#multi-instance-deployment).
+**Multi-instance:** if you scale beyond one instance, you must either hash-route requests by `conversationId` at the load balancer, or implement a Redis-backed `HistoryStore` and pass it into `handleMessage`'s `deps`. See [`AGENT.md`](AGENT.md#multi-instance-deployment).
 
 ## Dashboard — anywhere
 

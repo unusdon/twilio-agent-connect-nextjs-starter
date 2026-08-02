@@ -15,6 +15,7 @@
     "@anthropic-ai/sdk": "^0.115.0",
     "@tac-starter/shared": "1.0.0",
     "dotenv": "^17.0.0",
+    "openai": "^7.3.0",
     "twilio-agent-connect": "^2.0.1"
   },
   "devDependencies": {

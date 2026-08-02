@@ -1,4 +1,4 @@
-# Episode 1 — Contextual Omnichannel Conversations
+# Conversation Memory + Orchestrator
 
 **Goal:** wire up Conversation Memory + Conversation Orchestrator so a single customer profile survives across channels, and each LLM turn is grounded in relevant recalled observations.
 
@@ -10,11 +10,13 @@
 
 ## What this starter does
 
-Every inbound turn triggers this sequence inside `apps/agent/src/index.ts`:
+Every inbound turn triggers this sequence inside `apps/agent/src/handle-message.ts`:
 
-1. TAC hands your callback the `memory: TACMemoryResponse` object — the SDK has already called Recall for you before invoking `onMessageReady`.
-2. `MemoryPromptBuilder.compose(instructions, memory, session)` produces the system prompt that will be sent to Claude — persona instructions on top, recalled observations underneath.
-3. We introspect the memory response and emit a `memory.recalled` observability event with the raw observations + scores. The dashboard renders these so you can see what the model actually saw.
+1. TAC hands the `onMessageReady` callback the `memory: TACMemoryResponse` object — the SDK has already called Recall for you before invoking the callback.
+2. `MemoryPromptBuilder.compose(instructions, memory, session)` produces the system prompt that will be sent to the LLM — persona instructions on top, recalled observations underneath.
+3. We introspect the memory response and emit a `memory.recalled` observability event with the retrieved observations. The dashboard renders these so operators can see what the model actually saw.
+
+Observations are returned by Recall in relevance-descending order — the SDK does not expose an explicit similarity score. The `memory.recalled` event preserves that ordering and the observation timestamps (`occurredAt`) so operators can reason about staleness.
 
 ## Provisioning
 
@@ -36,6 +38,16 @@ It writes a `.env` in the Python repo — copy `TAC_MEMORY_STORE_SID` and `TAC_C
 
 **Manual alternative:** provision through the Twilio Console (**Conversations → Agent Connect → Memory Stores** and **Conversation Configurations**). Full walkthrough in the [TAC Quickstart](https://www.twilio.com/docs/conversations/agent-connect/quickstart).
 
+## Optional: on-demand memory retrieval tool
+
+By default, Memory Recall runs automatically once per turn. If your agent needs to fetch additional memory context mid-turn (e.g. deeper lookups when the initial recall didn't return what the model needed), enable the `retrieve_profile_memory` tool:
+
+```env
+TAC_ENABLE_MEMORY_RETRIEVAL_TOOL=1
+```
+
+Once set, the LLM can call `retrieve_profile_memory` as part of the tool loop. See [`AGENT.md`](AGENT.md#custom-tools) for how tools flow through the loop.
+
 ## Verifying
 
 Once provisioned:
@@ -44,9 +56,9 @@ Once provisioned:
 npm run setup:check
 ```
 
-The script confirms your credentials authenticate against the Twilio API. It does not send messages or incur cost.
+The script confirms your credentials authenticate against the Twilio API and against your chosen LLM provider. It does not send messages or incur meaningful cost.
 
 ## Where to look next
 
-- Ep 2 — [`EP2_AGENT.md`](EP2_AGENT.md) covers the agent build itself
-- Ep 3 — [`EP3_OBSERVABILITY.md`](EP3_OBSERVABILITY.md) covers the dashboard and the event schema
+- [`AGENT.md`](AGENT.md) — the agent build itself: channels, tool loop, adapters
+- [`OBSERVABILITY.md`](OBSERVABILITY.md) — the dashboard and the event schema

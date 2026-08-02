@@ -30,8 +30,6 @@ export default async function ConversationDetail({ params }: Params) {
   const status = deriveStatus(events);
   const initial = name.charAt(0).toUpperCase();
 
-  // Compute latency scale for the timeline waterfall bars — longest LLM turn
-  // sets the max width so bars are comparable within the conversation.
   const maxLatency = Math.max(
     1,
     ...events
@@ -41,15 +39,11 @@ export default async function ConversationDetail({ params }: Params) {
 
   return (
     <div className="space-y-6 animate-fade-in">
-      <Link
-        href="/"
-        className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-accent"
-      >
+      <Link href="/" className="inline-flex items-center gap-1.5 text-sm text-muted hover:text-accent">
         <ArrowRightIcon className="h-3.5 w-3.5 rotate-180" />
         All conversations
       </Link>
 
-      {/* Header card */}
       <div className="rounded-2xl border border-border bg-panel p-6 shadow-panel">
         <div className="flex items-start gap-4">
           <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-accent-soft text-lg font-semibold text-accent">
@@ -74,7 +68,6 @@ export default async function ConversationDetail({ params }: Params) {
         </div>
       </div>
 
-      {/* Timeline */}
       <ol className="relative space-y-3 before:absolute before:left-[19px] before:top-4 before:bottom-4 before:w-px before:bg-border">
         {events.map((e, i) => (
           <EventCard key={i} event={e} maxLatency={maxLatency} />
@@ -92,12 +85,13 @@ function EventCard({ event, maxLatency }: { event: TacEvent; maxLatency: number 
     second: "2-digit",
     fractionalSecondDigits: 3,
   });
-
   const palette = eventPalette(event.type);
+  const cycle = event.cycleDepth ?? null;
+  // Indent tool cycles slightly so the LLM → tool → tool_result → LLM chain reads visually.
+  const chainIndentPx = cycle !== null ? cycle * 20 : 0;
 
   return (
-    <li className="relative flex gap-4 pl-1">
-      {/* Timeline dot */}
+    <li className="relative flex gap-4 pl-1" style={{ marginLeft: chainIndentPx }}>
       <div
         className="relative z-10 flex h-10 w-10 shrink-0 items-center justify-center rounded-full shadow-panel"
         style={{
@@ -120,6 +114,11 @@ function EventCard({ event, maxLatency }: { event: TacEvent; maxLatency: number 
             >
               {event.type}
             </span>
+            {cycle !== null && (
+              <span className="rounded bg-bg px-1.5 py-0.5 font-mono text-[10px] text-muted">
+                cycle {cycle}
+              </span>
+            )}
           </div>
           <span className="font-mono text-[11px] text-muted tabular-nums">{time}</span>
         </div>
@@ -141,10 +140,18 @@ function eventPalette(type: TacEvent["type"]): { bg: string; fg: string } {
       return { bg: "--evt-llm-bg", fg: "--evt-llm-fg" };
     case "tool.called":
       return { bg: "--evt-tool-bg", fg: "--evt-tool-fg" };
+    case "tool.result":
+      return { bg: "--evt-toolres-bg", fg: "--evt-toolres-fg" };
     case "message.sent":
       return { bg: "--evt-sent-bg", fg: "--evt-sent-fg" };
     case "rule.fired":
       return { bg: "--evt-rule-bg", fg: "--evt-rule-fg" };
+    case "call.started":
+      return { bg: "--evt-call-start-bg", fg: "--evt-call-start-fg" };
+    case "call.ended":
+      return { bg: "--evt-call-end-bg", fg: "--evt-call-end-fg" };
+    case "interrupt.detected":
+      return { bg: "--evt-interrupt-bg", fg: "--evt-interrupt-fg" };
   }
 }
 
@@ -156,9 +163,7 @@ function EventBody({ event, maxLatency }: { event: TacEvent; maxLatency: number 
           <div className="text-[11px] uppercase tracking-wide text-muted">
             from <span className="font-mono normal-case text-text-secondary">{event.from}</span>
           </div>
-          <p className="mt-1.5 whitespace-pre-wrap text-[15px] leading-relaxed">
-            {event.message}
-          </p>
+          <p className="mt-1.5 whitespace-pre-wrap text-[15px] leading-relaxed">{event.message}</p>
         </div>
       );
 
@@ -223,24 +228,27 @@ function EventBody({ event, maxLatency }: { event: TacEvent; maxLatency: number 
             </span>
             {cacheHit !== null && (
               <span>
-                cache{" "}
-                <span className="font-medium text-text tabular-nums">{cacheHit}%</span>
+                cache <span className="font-medium text-text tabular-nums">{cacheHit}%</span>
+              </span>
+            )}
+            {event.invokedTool && (
+              <span className="rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-900 dark:bg-amber-900/40 dark:text-amber-200">
+                invoked tool
               </span>
             )}
             <span className="ml-auto tabular-nums">{event.latencyMs}ms</span>
           </div>
-          {/* Latency waterfall bar */}
           <div className="relative h-1.5 overflow-hidden rounded-full bg-bg">
             <div
               className="absolute inset-y-0 left-0 rounded-full"
-              style={{
-                width: `${barPct}%`,
-                background: "rgb(var(--evt-llm-fg))",
-                opacity: 0.7,
-              }}
+              style={{ width: `${barPct}%`, background: "rgb(var(--evt-llm-fg))", opacity: 0.7 }}
             />
           </div>
-          <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{event.response}</p>
+          {event.response ? (
+            <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{event.response}</p>
+          ) : (
+            <p className="text-sm italic text-muted">(tool-only turn — no text response)</p>
+          )}
         </div>
       );
     }
@@ -252,6 +260,7 @@ function EventBody({ event, maxLatency }: { event: TacEvent; maxLatency: number 
             <span className="rounded bg-bg px-1.5 py-0.5 font-mono text-text-secondary">
               {event.tool}
             </span>
+            <span className="font-mono text-[10px] text-muted">{event.toolCallId}</span>
             <span
               className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-medium ${
                 event.outcome === "succeeded"
@@ -261,10 +270,27 @@ function EventBody({ event, maxLatency }: { event: TacEvent; maxLatency: number 
             >
               {event.outcome}
             </span>
-            {event.error && <span className="text-muted">{event.error}</span>}
+            <span className="tabular-nums text-muted">{event.latencyMs}ms</span>
+            {event.error && <span className="text-rose-700 dark:text-rose-400">{event.error}</span>}
           </div>
           <pre className="overflow-x-auto rounded-lg border border-border bg-bg p-3 text-xs leading-relaxed">
             {JSON.stringify(event.input, null, 2)}
+          </pre>
+        </div>
+      );
+
+    case "tool.result":
+      return (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted">
+            <span className="rounded bg-bg px-1.5 py-0.5 font-mono text-text-secondary">
+              {event.tool}
+            </span>
+            <span className="font-mono text-[10px]">{event.toolCallId}</span>
+            <span>result fed back to next LLM turn</span>
+          </div>
+          <pre className="overflow-x-auto whitespace-pre-wrap rounded-lg border border-border bg-bg p-3 text-xs leading-relaxed">
+            {formatJsonMaybe(event.result)}
           </pre>
         </div>
       );
@@ -274,17 +300,76 @@ function EventBody({ event, maxLatency }: { event: TacEvent; maxLatency: number 
 
     case "rule.fired":
       return (
-        <div className="space-y-2">
+        <div className="space-y-1">
           <div className="text-[11px] text-muted">
-            rule:{" "}
-            <span className="rounded bg-bg px-1.5 py-0.5 font-mono text-text-secondary">
-              {event.ruleName}
-            </span>
+            rule: <span className="rounded bg-bg px-1.5 py-0.5 font-mono text-text-secondary">{event.ruleName}</span>
           </div>
           <pre className="overflow-x-auto rounded-lg border border-border bg-bg p-3 text-xs leading-relaxed">
             {JSON.stringify(event.payload, null, 2)}
           </pre>
         </div>
       );
+
+    case "call.started":
+      return (
+        <div className="flex flex-wrap items-center gap-3 text-[13px]">
+          <span>
+            from <span className="font-mono text-text-secondary">{event.from}</span>
+          </span>
+          {event.to && (
+            <span>
+              to <span className="font-mono text-text-secondary">{event.to}</span>
+            </span>
+          )}
+          {event.callSid && (
+            <span className="rounded bg-bg px-1.5 py-0.5 font-mono text-[11px] text-text-secondary">
+              {event.callSid}
+            </span>
+          )}
+        </div>
+      );
+
+    case "call.ended":
+      return (
+        <div className="flex flex-wrap items-center gap-3 text-[13px]">
+          {event.durationMs !== undefined && (
+            <span className="tabular-nums">
+              duration <span className="font-medium text-text">{(event.durationMs / 1000).toFixed(1)}s</span>
+            </span>
+          )}
+          {event.reason && (
+            <span className="rounded bg-bg px-1.5 py-0.5 font-mono text-[11px] text-text-secondary">
+              {event.reason}
+            </span>
+          )}
+        </div>
+      );
+
+    case "interrupt.detected":
+      return (
+        <div className="space-y-1.5">
+          {event.durationUntilInterruptMs !== undefined && (
+            <div className="text-[11px] text-muted">
+              customer talked over the assistant after{" "}
+              <span className="font-medium text-text tabular-nums">
+                {event.durationUntilInterruptMs}ms
+              </span>
+            </div>
+          )}
+          {event.utteranceUntilInterrupt && (
+            <p className="rounded bg-bg px-2 py-1.5 text-[13px] italic text-text-secondary">
+              &ldquo;{event.utteranceUntilInterrupt}…&rdquo;
+            </p>
+          )}
+        </div>
+      );
+  }
+}
+
+function formatJsonMaybe(s: string): string {
+  try {
+    return JSON.stringify(JSON.parse(s), null, 2);
+  } catch {
+    return s;
   }
 }

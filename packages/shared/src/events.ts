@@ -3,7 +3,9 @@
  *
  * Every meaningful step in an agent turn emits one of these events. The dashboard
  * renders them as a per-conversation timeline so operators can trace exactly what
- * happened, in what order, and why. Ep 3 of the pedagogy is built on top of this.
+ * happened, in what order, and why. Multi-tool loops chain together with
+ * `cycleDepth` + `toolCallId` so operators can see the LLM → tool → LLM cascade
+ * for a single customer message.
  */
 
 export type Channel = "voice" | "sms" | "whatsapp" | "chat";
@@ -15,100 +17,169 @@ interface BaseEvent {
   conversationId: string;
   /** Which channel the current turn came in on. */
   channel: Channel;
+  /**
+   * Which iteration of the multi-tool loop this event belongs to. 0 = the
+   * first LLM turn triggered by a customer message; every tool_use → tool_result
+   * → next LLM pair increments this. `undefined` on events that don't belong to
+   * a loop (message.received, message.sent, memory.recalled, voice lifecycle).
+   */
+  cycleDepth?: number;
 }
 
-/** Inbound customer message received on a channel. */
+// ─── Message events ───────────────────────────────────────────────────────
+
 export interface MessageReceived extends BaseEvent {
   type: "message.received";
   message: string;
   /** Twilio's participant identity — phone number, WhatsApp ID, etc. */
   from: string;
+  // NOTE: transcript metadata (ASR confidence, duration) intentionally omitted.
+  // MessageReadyCallback doesn't surface it. Coming via VoiceChannelEvents
+  // listener in a future release.
 }
 
 /**
  * Recall API called to fetch context for this turn. The retrieved observations
  * are logged verbatim so operators can inspect what the model actually saw.
  * Observations are returned by TAC in relevance-descending order — no explicit
- * score field is exposed by the SDK.
+ * similarity score is exposed by the SDK.
  */
 export interface MemoryRecalled extends BaseEvent {
   type: "memory.recalled";
   query: string;
   /** Number of observations returned; null when Recall was skipped. */
   observationCount: number | null;
-  /**
-   * Retrieved observations, truncated for the log. Ordered by relevance
-   * (most relevant first) — no explicit similarity score is exposed.
-   */
   observations: Array<{ content: string; occurredAt?: string }>;
   /**
-   * Total Recall round-trip latency in milliseconds — null when the SDK
-   * doesn't expose it (current TAC 2.x does not surface retrieval latency
-   * from MemoryPromptBuilder.compose()). Kept as an explicit null instead
-   * of `0` so the UI can show "n/a" rather than a misleading zero.
+   * Recall round-trip latency in milliseconds — null when the SDK doesn't
+   * expose it. Kept as an explicit null instead of `0` so the UI can show
+   * "n/a" rather than a misleading zero.
    */
   latencyMs: number | null;
 }
 
-/** LLM invocation — prompt + response summary. */
+// ─── LLM cycle events ─────────────────────────────────────────────────────
+
 export interface LlmCompleted extends BaseEvent {
   type: "llm.completed";
   model: string;
-  /** Just the assistant's text response; tool calls surface as separate events. */
+  /**
+   * Text portion of the assistant response. Empty on tool-only turns where
+   * the LLM emitted only a tool_use with no accompanying text.
+   */
   response: string;
+  /** True if this LLM turn ended with a tool_use (chain continues after). */
+  invokedTool: boolean;
   usage: {
     inputTokens: number;
     outputTokens: number;
-    /** Anthropic prompt-cache hit ratio, if reported. */
     cacheReadTokens?: number;
   };
   latencyMs: number;
 }
 
 /**
- * LLM called a tool. The starter's built-in tool is `handoff` (from the TAC
- * SDK's `createStudioHandoffTool`, which defaults to that name). Extend this
- * union or leave it as a string literal to add your own tools.
+ * LLM invoked a tool. The starter's built-in tool is `handoff` (from the TAC
+ * SDK's `createStudioHandoffTool`). Buyers register additional tools in
+ * `apps/agent/src/tools.ts`.
  */
 export interface ToolCalled extends BaseEvent {
   type: "tool.called";
-  tool: "handoff" | string;
+  /** LLM-generated correlation ID linking this tool call to its result. */
+  toolCallId: string;
+  tool: "handoff" | "knowledge_search" | "create_observation" | string;
   /** JSON-serialisable input the LLM chose. */
   input: unknown;
   outcome: "succeeded" | "failed";
-  /** Error message if outcome === "failed". */
+  /** Wall-clock time the tool implementation took. */
+  latencyMs: number;
   error?: string;
 }
 
-/** Outbound response actually sent back on the channel. */
+/**
+ * The tool executed — its output was fed back to the next LLM turn. Separate
+ * from `tool.called` (which captures what the LLM asked for) so operators can
+ * see the exact string the model got to reason over.
+ */
+export interface ToolResult extends BaseEvent {
+  type: "tool.result";
+  toolCallId: string;
+  tool: string;
+  /** Serialised tool output (truncated in the log for very large payloads). */
+  result: string;
+}
+
+// ─── Outbound + lifecycle + rule events ───────────────────────────────────
+
 export interface MessageSent extends BaseEvent {
   type: "message.sent";
   message: string;
+  // NOTE: TTS metadata (voice profile, synthesis latency) intentionally
+  // omitted. MessageReadyCallback doesn't surface it. Coming via
+  // VoiceChannelEvents listener in a future release.
 }
 
-/**
- * An intelligence-rule webhook fired. The starter emits a passthrough entry so
- * operators can see the rule-eval → action link in the trace.
- */
 export interface RuleFired extends BaseEvent {
   type: "rule.fired";
   ruleName: string;
   payload: unknown;
 }
 
+// ─── Voice call lifecycle ─────────────────────────────────────────────────
+
+export interface CallStarted extends BaseEvent {
+  type: "call.started";
+  /** Twilio Call SID for correlating with the Voice console. */
+  callSid?: string;
+  from: string;
+  to?: string;
+}
+
+export interface CallEnded extends BaseEvent {
+  type: "call.ended";
+  /** Total call duration in milliseconds. */
+  durationMs?: number;
+  reason?: "customer_hangup" | "agent_hangup" | "handoff" | "error" | "unknown";
+}
+
+/**
+ * Customer talked over the assistant. Signals bad response length, poor TTS
+ * pacing, or a misread of intent — one of the most valuable voice-agent
+ * quality signals. TAC's InterruptCallback provides the payload.
+ */
+export interface InterruptDetected extends BaseEvent {
+  type: "interrupt.detected";
+  /** The partial assistant utterance that had already played. */
+  utteranceUntilInterrupt?: string;
+  /** ms into the assistant response when the customer started speaking. */
+  durationUntilInterruptMs?: number;
+}
+
+// ─── Union + type constants ───────────────────────────────────────────────
+
 export type TacEvent =
   | MessageReceived
   | MemoryRecalled
   | LlmCompleted
   | ToolCalled
+  | ToolResult
   | MessageSent
-  | RuleFired;
+  | RuleFired
+  | CallStarted
+  | CallEnded
+  | InterruptDetected;
 
 export const eventTypes = [
   "message.received",
   "memory.recalled",
   "llm.completed",
   "tool.called",
+  "tool.result",
   "message.sent",
   "rule.fired",
+  "call.started",
+  "call.ended",
+  "interrupt.detected",
 ] as const;
+
+export type EventType = (typeof eventTypes)[number];

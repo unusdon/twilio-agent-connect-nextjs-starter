@@ -1,43 +1,17 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { StarterConfig } from "@tac-starter/shared";
-
-interface Usage {
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadTokens?: number;
-}
+import type { ConvItem, LlmAdapter, LlmResult, LlmTool } from "./llm-types.js";
 
 /**
- * Adapter result — Claude either produced text OR requested a tool call.
- * The agent branches on `type` to handle each case.
- */
-export type ClaudeResult =
-  | {
-      type: "text";
-      text: string;
-      model: string;
-      usage: Usage;
-      latencyMs: number;
-    }
-  | {
-      type: "tool_use";
-      toolName: string;
-      input: Record<string, unknown>;
-      model: string;
-      usage: Usage;
-      latencyMs: number;
-    };
-
-/**
- * Thin Claude adapter. Swap this file to swap providers — the rest of the
- * agent depends only on `ClaudeResult` shape.
+ * Anthropic Claude adapter.
  *
  * Uses prompt caching on the system prompt so repeated turns in the same
- * conversation are cheap. The system prompt is the natural cache anchor
- * because MemoryPromptBuilder.compose() prepends stable persona instructions
- * before the per-turn memory context.
+ * conversation are cheap. Translates the provider-neutral ConvItem[] into
+ * Anthropic's native message shape, including multiple tool_use / tool_result
+ * blocks for parallel-tool agentic loops.
  */
-export class ClaudeAdapter {
+export class AnthropicAdapter implements LlmAdapter {
+  readonly id: string;
   private readonly client: Anthropic;
   private readonly model: string;
   private readonly maxTokens: number;
@@ -48,16 +22,17 @@ export class ClaudeAdapter {
     this.model = process.env["ANTHROPIC_MODEL"] ?? llm.defaultModel;
     this.maxTokens = llm.maxTokens;
     this.temperature = llm.temperature;
+    this.id = `anthropic:${this.model}`;
   }
 
   async respond(params: {
     systemPrompt: string;
-    conversation: Array<{ role: "user" | "assistant"; content: string }>;
-    userMessage: string;
-    /** Optional Anthropic-format tool schemas the LLM may call. */
-    tools?: Anthropic.Tool[];
-  }): Promise<ClaudeResult> {
+    conversation: ConvItem[];
+    tools?: LlmTool[];
+  }): Promise<LlmResult> {
     const started = Date.now();
+    const messages = translateConversation(params.conversation);
+
     const response = await this.client.messages.create({
       model: this.model,
       max_tokens: this.maxTokens,
@@ -69,39 +44,97 @@ export class ClaudeAdapter {
           cache_control: { type: "ephemeral" },
         },
       ],
-      messages: [
-        ...params.conversation.map((m) => ({ role: m.role, content: m.content })),
-        { role: "user" as const, content: params.userMessage },
-      ],
-      ...(params.tools && params.tools.length > 0 ? { tools: params.tools } : {}),
+      messages,
+      ...(params.tools && params.tools.length > 0
+        ? {
+            tools: params.tools.map((t) => ({
+              name: t.name,
+              description: t.description,
+              input_schema: t.input_schema as Anthropic.Tool.InputSchema,
+            })),
+          }
+        : {}),
     });
 
-    const usage: Usage = {
+    const usage = {
       inputTokens: response.usage.input_tokens,
       outputTokens: response.usage.output_tokens,
       cacheReadTokens: response.usage.cache_read_input_tokens ?? undefined,
     };
     const meta = { model: response.model, usage, latencyMs: Date.now() - started };
 
-    // Prefer tool_use if present — Claude may emit a text block alongside a
-    // tool_use, but the intent-signal is the tool call.
-    const toolUse = response.content.find(
-      (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
-    );
-    if (toolUse) {
-      return {
-        type: "tool_use",
-        toolName: toolUse.name,
-        input: toolUse.input as Record<string, unknown>,
-        ...meta,
-      };
-    }
-
     const text = response.content
       .filter((block): block is Anthropic.TextBlock => block.type === "text")
       .map((block) => block.text)
       .join("");
 
+    // Collect EVERY tool_use block — Claude often emits several in parallel.
+    const toolUses = response.content.filter(
+      (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
+    );
+
+    if (toolUses.length > 0) {
+      return {
+        type: "tool_use",
+        toolCalls: toolUses.map((t) => ({
+          toolCallId: t.id,
+          toolName: t.name,
+          input: t.input as Record<string, unknown>,
+        })),
+        ...(text ? { text } : {}),
+        ...meta,
+      };
+    }
+
     return { type: "text", text, ...meta };
   }
+}
+
+function translateConversation(conv: ConvItem[]): Anthropic.MessageParam[] {
+  const messages: Anthropic.MessageParam[] = [];
+  let pendingToolResults: Anthropic.ToolResultBlockParam[] = [];
+
+  const flushToolResults = () => {
+    if (pendingToolResults.length > 0) {
+      messages.push({ role: "user", content: pendingToolResults });
+      pendingToolResults = [];
+    }
+  };
+
+  for (const item of conv) {
+    if (item.role === "tool") {
+      // Multiple tool results in a row batch into ONE user message per
+      // Anthropic's schema (tool_result blocks live inside user messages).
+      pendingToolResults.push({
+        type: "tool_result",
+        tool_use_id: item.toolCallId,
+        content: item.content,
+      });
+      continue;
+    }
+
+    // Anything else — flush any pending batch of tool results first.
+    flushToolResults();
+
+    if (item.role === "user") {
+      messages.push({ role: "user", content: item.content });
+    } else if (item.role === "assistant" && "toolCalls" in item) {
+      const blocks: Anthropic.ContentBlockParam[] = [];
+      if (item.text) blocks.push({ type: "text", text: item.text });
+      for (const tc of item.toolCalls) {
+        blocks.push({
+          type: "tool_use",
+          id: tc.toolCallId,
+          name: tc.toolName,
+          input: tc.input,
+        });
+      }
+      messages.push({ role: "assistant", content: blocks });
+    } else {
+      messages.push({ role: "assistant", content: item.content });
+    }
+  }
+
+  flushToolResults();
+  return messages;
 }

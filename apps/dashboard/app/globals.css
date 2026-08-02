@@ -27,10 +27,18 @@
   --evt-llm-fg: 6 95 70;
   --evt-tool-bg: 254 243 199;
   --evt-tool-fg: 146 64 14;
+  --evt-toolres-bg: 220 252 231;
+  --evt-toolres-fg: 21 128 61;
   --evt-sent-bg: 241 245 249;
   --evt-sent-fg: 51 65 85;
   --evt-rule-bg: 252 231 243;
   --evt-rule-fg: 157 23 77;
+  --evt-call-start-bg: 220 252 231;
+  --evt-call-start-fg: 22 101 52;
+  --evt-call-end-bg: 226 232 240;
+  --evt-call-end-fg: 71 85 105;
+  --evt-interrupt-bg: 254 226 226;
+  --evt-interrupt-fg: 153 27 27;
 }
 
 :root[data-theme="dark"] {
@@ -55,10 +63,18 @@
   --evt-llm-fg: 167 243 208;
   --evt-tool-bg: 120 53 15;
   --evt-tool-fg: 254 215 170;
+  --evt-toolres-bg: 21 128 61;
+  --evt-toolres-fg: 187 247 208;
   --evt-sent-bg: 30 41 59;
   --evt-sent-fg: 203 213 225;
   --evt-rule-bg: 131 24 67;
   --evt-rule-fg: 251 207 232;
+  --evt-call-start-bg: 22 101 52;
+  --evt-call-start-fg: 187 247 208;
+  --evt-call-end-bg: 51 65 85;
+  --evt-call-end-fg: 203 213 225;
+  --evt-interrupt-bg: 153 27 27;
+  --evt-interrupt-fg: 254 226 226;
 }
 
 html {

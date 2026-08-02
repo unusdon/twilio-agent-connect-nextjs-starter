@@ -115,6 +115,41 @@ export function BoltIcon(props: IconProps) {
   );
 }
 
+export function CheckIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M5 12l5 5L20 7" />
+    </svg>
+  );
+}
+
+export function PhoneUpIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M5 4l3-1 3 5-2 2a12 12 0 0 0 5 5l2-2 5 3-1 3a2 2 0 0 1-2 2A17 17 0 0 1 3 6a2 2 0 0 1 2-2z" />
+      <path d="M17 3l3 3M20 3l-3 3" />
+    </svg>
+  );
+}
+
+export function PhoneDownIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M4 15c4-4 12-4 16 0l-2 3c-2-1-4-2-6-2s-4 1-6 2z" />
+      <path d="M4 15l-1 3M20 15l1 3" />
+    </svg>
+  );
+}
+
+export function AlertIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M12 3l10 17H2L12 3z" />
+      <path d="M12 10v4M12 17.5v.1" />
+    </svg>
+  );
+}
+
 export function EventIcon({ type, ...props }: { type: TacEvent["type"] } & IconProps) {
   switch (type) {
     case "message.received":
@@ -125,10 +160,18 @@ export function EventIcon({ type, ...props }: { type: TacEvent["type"] } & IconP
       return <SparkleIcon {...props} />;
     case "tool.called":
       return <WrenchIcon {...props} />;
+    case "tool.result":
+      return <CheckIcon {...props} />;
     case "message.sent":
       return <SendIcon {...props} />;
     case "rule.fired":
       return <BoltIcon {...props} />;
+    case "call.started":
+      return <PhoneUpIcon {...props} />;
+    case "call.ended":
+      return <PhoneDownIcon {...props} />;
+    case "interrupt.detected":
+      return <AlertIcon {...props} />;
   }
 }
 

@@ -1,23 +1,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ClaudeAdapter, type ClaudeResult } from "./anthropic-adapter.js";
+import { AnthropicAdapter } from "./anthropic-adapter.js";
+import type { ConvItem, LlmResult } from "./llm-types.js";
 import type { StarterConfig } from "@tac-starter/shared";
 
 /**
  * Adapter smoke tests. We mock the Anthropic client at the module level to
- * verify the adapter's response-shape mapping without making live API calls.
- * The intent is to catch drift between the SDK's response shape and our
- * `ClaudeResult` union — full behaviour testing belongs against a live account.
+ * verify the adapter's shape mapping without live API calls — catches drift
+ * between the SDK's response shape and our `LlmResult` union.
  */
 
 const createMock = vi.fn();
 
-vi.mock("@anthropic-ai/sdk", () => {
-  return {
-    default: class MockAnthropic {
-      messages = { create: createMock };
-    },
-  };
-});
+vi.mock("@anthropic-ai/sdk", () => ({
+  default: class MockAnthropic {
+    messages = { create: createMock };
+  },
+}));
 
 const llmConfig: StarterConfig["llm"] = {
   provider: "anthropic",
@@ -26,22 +24,19 @@ const llmConfig: StarterConfig["llm"] = {
   temperature: 0.6,
 };
 
-afterEach(() => {
-  createMock.mockReset();
-});
+afterEach(() => createMock.mockReset());
 
-describe("ClaudeAdapter.respond", () => {
+describe("AnthropicAdapter.respond", () => {
   it("maps a plain-text response to type: 'text'", async () => {
     createMock.mockResolvedValue({
       model: "claude-sonnet-4-6",
       content: [{ type: "text", text: "Hello there." }],
       usage: { input_tokens: 42, output_tokens: 6, cache_read_input_tokens: 30 },
     });
-    const adapter = new ClaudeAdapter(llmConfig);
-    const result: ClaudeResult = await adapter.respond({
+    const adapter = new AnthropicAdapter(llmConfig);
+    const result: LlmResult = await adapter.respond({
       systemPrompt: "system",
-      conversation: [],
-      userMessage: "hi",
+      conversation: [{ role: "user", content: "hi" }],
     });
     expect(result.type).toBe("text");
     if (result.type !== "text") throw new Error("unreachable");
@@ -51,48 +46,112 @@ describe("ClaudeAdapter.respond", () => {
     expect(result.usage.cacheReadTokens).toBe(30);
   });
 
-  it("prefers tool_use when Claude emits both a text and a tool_use block", async () => {
+  it("returns all tool_use blocks in a single response (parallel batch)", async () => {
     createMock.mockResolvedValue({
       model: "claude-sonnet-4-6",
       content: [
-        { type: "text", text: "Connecting you." },
-        { type: "tool_use", name: "handoff", input: { reason: "customer request" } },
+        { type: "text", text: "Let me check both." },
+        {
+          type: "tool_use",
+          id: "toolu_kb",
+          name: "search_knowledge_base",
+          input: { query: "shipping policy" },
+        },
+        {
+          type: "tool_use",
+          id: "toolu_ord",
+          name: "lookup_order",
+          input: { order_id: "A-1" },
+        },
       ],
       usage: { input_tokens: 100, output_tokens: 20 },
     });
-    const adapter = new ClaudeAdapter(llmConfig);
+    const adapter = new AnthropicAdapter(llmConfig);
     const result = await adapter.respond({
-      systemPrompt: "system",
-      conversation: [],
-      userMessage: "i want a human",
+      systemPrompt: "s",
+      conversation: [{ role: "user", content: "where's my order and what's the policy?" }],
       tools: [
         {
-          name: "handoff",
-          description: "Handoff to a human",
+          name: "search_knowledge_base",
+          description: "KB search",
+          input_schema: { type: "object", properties: {}, required: [] },
+        },
+        {
+          name: "lookup_order",
+          description: "Order lookup",
           input_schema: { type: "object", properties: {}, required: [] },
         },
       ],
     });
     expect(result.type).toBe("tool_use");
     if (result.type !== "tool_use") throw new Error("unreachable");
-    expect(result.toolName).toBe("handoff");
-    expect(result.input).toEqual({ reason: "customer request" });
+    expect(result.toolCalls).toHaveLength(2);
+    expect(result.toolCalls.map((t) => t.toolName)).toEqual([
+      "search_knowledge_base",
+      "lookup_order",
+    ]);
+    expect(result.toolCalls[0]!.toolCallId).toBe("toolu_kb");
+    expect(result.toolCalls[1]!.input).toEqual({ order_id: "A-1" });
+    expect(result.text).toBe("Let me check both.");
   });
 
-  it("only sends the tools param to the SDK when a non-empty tools array is passed", async () => {
+  it("translates a full conversation (user → assistant toolCalls → tool results → user) to Anthropic shape", async () => {
+    createMock.mockResolvedValue({
+      model: "claude-sonnet-4-6",
+      content: [{ type: "text", text: "Both checks done." }],
+      usage: { input_tokens: 200, output_tokens: 8 },
+    });
+    const adapter = new AnthropicAdapter(llmConfig);
+    const conv: ConvItem[] = [
+      { role: "user", content: "check both please" },
+      {
+        role: "assistant",
+        text: "Checking now.",
+        toolCalls: [
+          { toolCallId: "toolu_a", toolName: "search_kb", input: { q: "policy" } },
+          { toolCallId: "toolu_b", toolName: "lookup", input: { id: "A-1" } },
+        ],
+      },
+      { role: "tool", toolCallId: "toolu_a", content: '{"chunks":[]}' },
+      { role: "tool", toolCallId: "toolu_b", content: '{"status":"ok"}' },
+    ];
+    await adapter.respond({ systemPrompt: "s", conversation: conv });
+
+    const payload = createMock.mock.calls[0]![0];
+    // user + assistant(text+2 tool_use) + user(2 tool_result) = 3 messages
+    expect(payload.messages).toHaveLength(3);
+    expect(payload.messages[1].role).toBe("assistant");
+    expect(payload.messages[1].content).toHaveLength(3); // text + 2 tool_use
+    expect(payload.messages[2].role).toBe("user");
+    // Both tool_results batched into the SAME user message (Anthropic requirement)
+    expect(payload.messages[2].content).toHaveLength(2);
+    expect(payload.messages[2].content[0]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "toolu_a",
+    });
+    expect(payload.messages[2].content[1]).toMatchObject({
+      type: "tool_result",
+      tool_use_id: "toolu_b",
+    });
+  });
+
+  it("only sends the tools param to the SDK when the array is non-empty", async () => {
     createMock.mockResolvedValue({
       model: "claude-sonnet-4-6",
       content: [{ type: "text", text: "ok" }],
       usage: { input_tokens: 5, output_tokens: 1 },
     });
-    const adapter = new ClaudeAdapter(llmConfig);
+    const adapter = new AnthropicAdapter(llmConfig);
 
-    await adapter.respond({ systemPrompt: "s", conversation: [], userMessage: "u" });
-    expect(createMock).toHaveBeenCalledTimes(1);
+    await adapter.respond({ systemPrompt: "s", conversation: [{ role: "user", content: "u" }] });
     expect(createMock.mock.calls[0]![0]).not.toHaveProperty("tools");
 
     createMock.mockClear();
-    await adapter.respond({ systemPrompt: "s", conversation: [], userMessage: "u", tools: [] });
+    await adapter.respond({
+      systemPrompt: "s",
+      conversation: [{ role: "user", content: "u" }],
+      tools: [],
+    });
     expect(createMock.mock.calls[0]![0]).not.toHaveProperty("tools");
   });
 });

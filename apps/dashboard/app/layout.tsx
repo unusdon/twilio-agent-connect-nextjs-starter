@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { defaultConfig, defaultModelPerProvider, type LlmProvider } from "@tac-starter/shared";
 import { ThemeToggle, themeBootstrapScript } from "./theme-toggle";
 import "./globals.css";
 
@@ -38,9 +39,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               </span>
               <div>
                 <div className="text-sm font-semibold leading-tight tracking-tight">
-                  TAC + Claude Starter
+                  TAC Agent Starter
                 </div>
-                <div className="text-xs leading-tight text-muted">Observability</div>
+                <div className="text-xs leading-tight text-muted">Multi-LLM · Observability</div>
               </div>
             </Link>
             <nav className="ml-auto flex items-center gap-1 pr-3">
@@ -57,7 +58,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 Config
               </Link>
             </nav>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <ProviderBadge />
               <ModeBadge />
               <ThemeToggle />
             </div>
@@ -66,24 +68,44 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <main className="mx-auto max-w-6xl px-6 py-8">{children}</main>
         <footer className="border-t border-border">
           <div className="mx-auto max-w-6xl px-6 py-6 text-xs text-muted">
-            twilio-agent-connect-nextjs-starter · MIT · built with{" "}
+            twilio-agent-connect-nextjs-starter · MIT · built on{" "}
             <a
               href="https://github.com/twilio/twilio-agent-connect-typescript"
               className="text-accent hover:underline"
             >
               twilio-agent-connect
             </a>{" "}
-            &{" "}
-            <a
-              href="https://docs.anthropic.com"
-              className="text-accent hover:underline"
-            >
-              Anthropic Claude
-            </a>
+            · 5 LLM providers (Anthropic · OpenAI · Gemini · Ollama · LM Studio)
           </div>
         </footer>
       </body>
     </html>
+  );
+}
+
+const MODEL_ENV_PER_PROVIDER: Record<LlmProvider, string> = {
+  anthropic: "ANTHROPIC_MODEL",
+  openai: "OPENAI_MODEL",
+  gemini: "GEMINI_MODEL",
+  ollama: "OLLAMA_MODEL",
+  lmstudio: "LMSTUDIO_MODEL",
+};
+
+function ProviderBadge() {
+  const provider =
+    (process.env["LLM_PROVIDER"] as LlmProvider | undefined) ?? defaultConfig.llm.provider;
+  const model = process.env[MODEL_ENV_PER_PROVIDER[provider]] ?? defaultModelPerProvider[provider];
+  return (
+    <Link
+      href="/config"
+      className="hidden items-center gap-1.5 rounded-full border border-border bg-panel px-2.5 py-1 font-mono text-[11px] text-muted transition hover:border-border-strong hover:text-text sm:inline-flex"
+      title="Active LLM provider — click to see the full provider matrix"
+    >
+      <span className="h-1.5 w-1.5 rounded-full bg-accent" />
+      <span className="text-text-secondary">{provider}</span>
+      <span className="text-muted">·</span>
+      <span>{model}</span>
+    </Link>
   );
 }
 

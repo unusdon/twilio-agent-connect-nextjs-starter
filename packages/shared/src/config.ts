@@ -6,6 +6,30 @@
  * is scattered across the codebase.
  */
 
+export type LlmProvider =
+  | "anthropic"
+  | "openai"
+  | "gemini"
+  | "ollama"
+  | "lmstudio";
+
+export const llmProviders: readonly LlmProvider[] = [
+  "anthropic",
+  "openai",
+  "gemini",
+  "ollama",
+  "lmstudio",
+] as const;
+
+/** Recommended default model per provider — override via env at runtime. */
+export const defaultModelPerProvider: Record<LlmProvider, string> = {
+  anthropic: "claude-sonnet-4-6",
+  openai: "gpt-4o",
+  gemini: "gemini-2.0-flash",
+  ollama: "llama3.2",
+  lmstudio: "llama3.2",
+};
+
 export interface StarterConfig {
   /** The persona / system prompt the LLM uses on every turn. */
   agent: {
@@ -25,11 +49,31 @@ export interface StarterConfig {
       /** Reads from TWILIO_STUDIO_HANDOFF_FLOW_SID at runtime. */
       studioFlowSidEnv: string;
     };
+    /** Agentic runtime knobs. */
+    loop: {
+      /** Maximum LLM→tool→LLM cycles per customer message before we bail out. */
+      maxCycles: number;
+      /** Total ms budget for one customer message (across all cycles + tool exec). */
+      turnTimeoutMs: number;
+      /** Cap on assistant history pairs kept in memory per conversation. */
+      maxHistoryTurns: number;
+      /** Sent to the customer after a terminal handoff tool succeeds. */
+      handoffFarewell: string;
+      /** Sent when the tool loop runs out of cycles without a final text turn. */
+      cycleCapFallback: string;
+      /** Sent when the whole turn exceeds `turnTimeoutMs`. */
+      timeoutFallback: string;
+    };
   };
-  /** LLM adapter — swap the adapter file to swap providers. */
+  /**
+   * LLM adapter — five providers built in. Swap by editing `provider` here
+   * (or set `LLM_PROVIDER` in `.env` to override without a code change).
+   * Model defaults are per-provider; the adapter reads a provider-specific
+   * env var (e.g. `OPENAI_MODEL`, `OLLAMA_MODEL`) at construction time.
+   */
   llm: {
-    provider: "anthropic";
-    /** Reads from ANTHROPIC_MODEL if set; otherwise this default. */
+    provider: LlmProvider;
+    /** Reads from the provider-specific env var if set; otherwise this default. */
     defaultModel: string;
     /** Max output tokens per turn. */
     maxTokens: number;
@@ -59,7 +103,7 @@ export const defaultConfig: StarterConfig = {
       "Do not use markdown, asterisks, bullets, or emojis; your words will be spoken aloud or sent as plain text. " +
       "If the customer explicitly asks for a human, or you cannot adequately handle their request, invoke the handoff tool.",
     channels: {
-      voice: false, // deferred to v1.1 — Voice needs ConversationRelay wiring
+      voice: true, // uses ConversationRelay (WebSocket streaming) under the hood
       sms: true,
       whatsapp: true,
       chat: true,
@@ -67,6 +111,17 @@ export const defaultConfig: StarterConfig = {
     handoff: {
       enabled: true,
       studioFlowSidEnv: "TWILIO_STUDIO_HANDOFF_FLOW_SID",
+    },
+    loop: {
+      maxCycles: 8,
+      turnTimeoutMs: 45_000,
+      maxHistoryTurns: 20,
+      handoffFarewell:
+        "Connecting you with a human agent now. Please hold — someone will be with you shortly.",
+      cycleCapFallback:
+        "Let me get back to you on that — I'm gathering the information now.",
+      timeoutFallback:
+        "Sorry, that's taking longer than expected on my end. Give me a moment and try again.",
     },
   },
   llm: {
